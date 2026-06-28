@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: DeviceAPI",
+  "description": "A platform that transforms smartphones into secure hardware extensions for desktop apps and AI agents using a unified API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

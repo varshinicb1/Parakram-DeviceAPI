@@ -65,7 +65,11 @@
         <service
             android:name=".data.BatteryMonitoringService"
             android:exported="false"
-            android:foregroundServiceType="specialUse" />
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Telemetry monitoring of battery state and developer sensors to expose to desktop agents over dynamic endpoint." />
+        </service>
     </application>
 
 </manifest>

@@ -32,6 +32,39 @@ data class QueryRequest(val query: String)
 @Serializable
 data class QueryResponse(val success: Boolean, val message: String? = null, val data: List<Map<String, String>>? = null)
 
+@Serializable
+data class UtapSchemaRequest(
+    val table: String,
+    val columns: List<String>
+)
+
+@Serializable
+data class UtapCreateRequest(
+    val table: String,
+    val data: Map<String, String>
+)
+
+@Serializable
+data class UtapReadRequest(
+    val table: String,
+    val where: String? = null,
+    val orderBy: String? = null,
+    val limit: Int? = null
+)
+
+@Serializable
+data class UtapUpdateRequest(
+    val table: String,
+    val data: Map<String, String>,
+    val where: String
+)
+
+@Serializable
+data class UtapDeleteRequest(
+    val table: String,
+    val where: String
+)
+
 data class ServerService(
     val id: String,
     val name: String,
@@ -253,6 +286,153 @@ class MobileServerManager(private val context: Context) {
                                 }
                             } else {
                                 call.respond(HttpStatusCode.Forbidden, QueryResponse(success = false, message = "Service Disabled"))
+                            }
+                        }
+
+                        get("/api/db/utap/tables") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val cursor = db.rawQuery("SELECT name, sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'", null)
+                                    val results = mutableListOf<Map<String, String>>()
+                                    if (cursor.moveToFirst()) {
+                                        do {
+                                            results.add(mapOf(
+                                                "table" to (cursor.getString(0) ?: "null"),
+                                                "sql" to (cursor.getString(1) ?: "null")
+                                            ))
+                                        } while (cursor.moveToNext())
+                                    }
+                                    cursor.close()
+                                    call.respond(mapOf("success" to true, "tables" to results))
+                                } catch (e: Exception) {
+                                    log("GET /api/db/utap/tables - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.InternalServerError, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/db/utap/schema") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<UtapSchemaRequest>()
+                                    val colDefs = req.columns.joinToString(", ")
+                                    val sql = "CREATE TABLE IF NOT EXISTS ${req.table} ($colDefs)"
+                                    log("UTAP Schema: $sql")
+                                    db.execSQL(sql)
+                                    call.respond(mapOf("success" to true, "message" to "Table '${req.table}' created or verified successfully."))
+                                } catch (e: Exception) {
+                                    log("POST /api/db/utap/schema - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/db/utap/create") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<UtapCreateRequest>()
+                                    val cols = req.data.keys.joinToString(", ")
+                                    val placeholders = req.data.keys.joinToString(", ") { "?" }
+                                    val sql = "INSERT INTO ${req.table} ($cols) VALUES ($placeholders)"
+                                    log("UTAP Create: $sql with ${req.data.values}")
+                                    
+                                    val stmt = db.compileStatement(sql)
+                                    var idx = 1
+                                    req.data.values.forEach { v ->
+                                        stmt.bindString(idx, v)
+                                        idx++
+                                    }
+                                    val rowId = stmt.executeInsert()
+                                    call.respond(mapOf("success" to true, "rowId" to rowId, "message" to "Row inserted successfully."))
+                                } catch (e: Exception) {
+                                    log("POST /api/db/utap/create - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/db/utap/read") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<UtapReadRequest>()
+                                    var sql = "SELECT * FROM ${req.table}"
+                                    if (!req.where.isNullOrEmpty()) {
+                                        sql += " WHERE ${req.where}"
+                                    }
+                                    if (!req.orderBy.isNullOrEmpty()) {
+                                        sql += " ORDER BY ${req.orderBy}"
+                                    }
+                                    if (req.limit != null) {
+                                        sql += " LIMIT ${req.limit}"
+                                    }
+                                    log("UTAP Read: $sql")
+                                    val cursor = db.rawQuery(sql, null)
+                                    val results = mutableListOf<Map<String, String>>()
+                                    if (cursor.moveToFirst()) {
+                                        do {
+                                            val row = mutableMapOf<String, String>()
+                                            for (i in 0 until cursor.columnCount) {
+                                                row[cursor.getColumnName(i)] = cursor.getString(i) ?: "null"
+                                            }
+                                            results.add(row)
+                                        } while (cursor.moveToNext())
+                                    }
+                                    cursor.close()
+                                    call.respond(mapOf("success" to true, "data" to results))
+                                } catch (e: Exception) {
+                                    log("POST /api/db/utap/read - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/db/utap/update") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<UtapUpdateRequest>()
+                                    val setClauses = req.data.keys.joinToString(", ") { "$it = ?" }
+                                    val sql = "UPDATE ${req.table} SET $setClauses WHERE ${req.where}"
+                                    log("UTAP Update: $sql")
+                                    
+                                    val stmt = db.compileStatement(sql)
+                                    var idx = 1
+                                    req.data.values.forEach { v ->
+                                        stmt.bindString(idx, v)
+                                        idx++
+                                    }
+                                    val rowsAffected = stmt.executeUpdateDelete()
+                                    call.respond(mapOf("success" to true, "rowsAffected" to rowsAffected, "message" to "Update completed successfully."))
+                                } catch (e: Exception) {
+                                    log("POST /api/db/utap/update - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/db/utap/delete") {
+                            if (_services.value.find { it.id == "db" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<UtapDeleteRequest>()
+                                    val sql = "DELETE FROM ${req.table} WHERE ${req.where}"
+                                    log("UTAP Delete: $sql")
+                                    db.execSQL(sql)
+                                    call.respond(mapOf("success" to true, "message" to "Deletion completed successfully."))
+                                } catch (e: Exception) {
+                                    log("POST /api/db/utap/delete - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to e.message))
+                                }
+                            } else {
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
                             }
                         }
                     }

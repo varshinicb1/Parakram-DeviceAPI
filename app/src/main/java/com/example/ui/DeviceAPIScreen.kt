@@ -110,6 +110,7 @@ fun DeviceAPIScreen(
 
     var currentTab by remember { mutableStateOf("dashboard") }
     var showPairingDialog by remember { mutableStateOf(false) }
+    var showQRHandshakeScreen by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(viewModel, currentUser) {
         val permissionsGranted = permissionsList.all {
@@ -126,7 +127,7 @@ fun DeviceAPIScreen(
     Scaffold(
         modifier = modifier.testTag("device_api_scaffold"),
         bottomBar = {
-            if (currentUser != null) {
+            if (currentUser != null && !showQRHandshakeScreen) {
                 DeviceAPIBottomNav(
                     currentTab = currentTab,
                     onTabSelected = { currentTab = it }
@@ -146,26 +147,33 @@ fun DeviceAPIScreen(
                     isFirebaseAvailable = isFirebaseAvailable
                 )
             } else {
-                when (currentTab) {
-                    "dashboard" -> DashboardTab(
+                if (showQRHandshakeScreen) {
+                    QRHandshakeScreen(
                         viewModel = viewModel,
-                        connectionState = connectionState,
-                        onPairClick = { showPairingDialog = true }
+                        onBackClick = { showQRHandshakeScreen = false }
                     )
-                    "server" -> ServerTab(
-                        viewModel = viewModel
-                    )
-                    "adb" -> AdbTab(
-                        viewModel = viewModel
-                    )
-                    "console" -> ConsoleTab(
-                        viewModel = viewModel
-                    )
-                    "profile" -> ProfileTab(
-                        viewModel = viewModel,
-                        currentUser = currentUser,
-                        isFirebaseAvailable = isFirebaseAvailable
-                    )
+                } else {
+                    when (currentTab) {
+                        "dashboard" -> DashboardTab(
+                            viewModel = viewModel,
+                            connectionState = connectionState,
+                            onPairClick = { showQRHandshakeScreen = true }
+                        )
+                        "server" -> ServerTab(
+                            viewModel = viewModel
+                        )
+                        "adb" -> AdbTab(
+                            viewModel = viewModel
+                        )
+                        "console" -> ConsoleTab(
+                            viewModel = viewModel
+                        )
+                        "profile" -> ProfileTab(
+                            viewModel = viewModel,
+                            currentUser = currentUser,
+                            isFirebaseAvailable = isFirebaseAvailable
+                        )
+                    }
                 }
             }
         }

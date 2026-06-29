@@ -108,6 +108,55 @@ data class NetworkToggleResponse(
     val current_state: Boolean
 )
 
+@Serializable
+data class ThermalStatusResponse(
+    val success: Boolean,
+    val thermal_status_code: Int,
+    val thermal_status_string: String,
+    val cpu_temperature_celsius: Double,
+    val battery_temperature_celsius: Double,
+    val is_overheating: Boolean,
+    val recommended_action: String
+)
+
+@Serializable
+data class StorageStatusResponse(
+    val success: Boolean,
+    val total_space_bytes: Long,
+    val free_space_bytes: Long,
+    val usable_space_bytes: Long,
+    val used_space_bytes: Long,
+    val usage_percent: Double,
+    val storage_path: String,
+    val low_storage_state: Boolean
+)
+
+@Serializable
+data class SecurePairingChallenge(
+    val handshakeId: String,
+    val challenge: String,
+    val ip: String,
+    val port: Int,
+    val qrPayload: String,
+    val pin: String
+)
+
+@Serializable
+data class SecurePairingRequest(
+    val handshakeId: String,
+    val clientName: String,
+    val clientMac: String,
+    val responseHash: String
+)
+
+@Serializable
+data class SecurePairingResponse(
+    val success: Boolean,
+    val message: String,
+    val apiKey: String? = null,
+    val deviceName: String? = null
+)
+
 data class ServerService(
     val id: String,
     val name: String,
@@ -157,6 +206,49 @@ class MobileServerManager(private val context: Context) {
         prefs.edit().putString("api_key", key).apply()
         _apiKey.value = key
         return key
+    }
+
+    private val _activeHandshake = MutableStateFlow<SecurePairingChallenge?>(null)
+    val activeHandshake: StateFlow<SecurePairingChallenge?> = _activeHandshake.asStateFlow()
+
+    fun generateSecureHandshakeChallenge(port: Int = 8080): SecurePairingChallenge {
+        val hid = java.util.UUID.randomUUID().toString().take(8)
+        val pin = (100000..999999).random().toString()
+        val challenge = java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+        val localIp = getLocalIpAddress()
+        val qrPayload = "parakram://secure-pair?ip=$localIp&port=$port&hid=$hid&ch=$challenge&pin=$pin"
+        
+        val handshake = SecurePairingChallenge(
+            handshakeId = hid,
+            challenge = challenge,
+            ip = localIp,
+            port = port,
+            qrPayload = qrPayload,
+            pin = pin
+        )
+        _activeHandshake.value = handshake
+        log("Generated secure QR pairing handshake challenge [ID: $hid, PIN: $pin]")
+        return handshake
+    }
+
+    fun clearActiveHandshake() {
+        _activeHandshake.value = null
+    }
+
+    fun computeSha256(input: String): String {
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            val hashBytes = digest.digest(input.toByteArray(Charsets.UTF_8))
+            hashBytes.joinToString("") { String.format("%02x", it) }
+        } catch (e: Exception) {
+            input.hashCode().toString()
+        }
+    }
+
+    private var onSecurePairSuccessCallback: ((clientName: String, clientIp: String) -> Unit)? = null
+
+    fun setOnSecurePairSuccessCallback(callback: (clientName: String, clientIp: String) -> Unit) {
+        onSecurePairSuccessCallback = callback
     }
 
     fun getCpuLoad(): Double {
@@ -439,6 +531,125 @@ class MobileServerManager(private val context: Context) {
         }
     }
 
+    fun getCpuTemp(): Double {
+        val paths = listOf(
+            "/sys/devices/virtual/thermal/thermal_zone0/temp",
+            "/sys/class/thermal/thermal_zone0/temp",
+            "/sys/devices/system/cpu/cpu0/cpufreq/cpu_temp",
+            "/sys/class/thermal/thermal_zone1/temp",
+            "/sys/class/thermal/thermal_zone3/temp",
+            "/sys/class/thermal/thermal_zone7/temp"
+        )
+        for (path in paths) {
+            try {
+                val file = File(path)
+                if (file.exists()) {
+                    val raw = file.readText().trim().toDoubleOrNull() ?: continue
+                    if (raw > 0) {
+                        val temp = if (raw > 1000) raw / 1000.0 else raw
+                        if (temp in 10.0..120.0) {
+                            return temp
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+        return getBatteryTemp()
+    }
+
+    fun getBatteryTemp(): Double {
+        try {
+            val filter = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+            val intent = context.registerReceiver(null, filter)
+            if (intent != null) {
+                val temp = intent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
+                return temp / 10.0
+            }
+        } catch (e: Exception) {}
+        return 34.5 // fallback ambient internal temperature
+    }
+
+    fun getThermalStatus(): ThermalStatusResponse {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        val statusCode = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            pm?.currentThermalStatus ?: 0
+        } else {
+            0
+        }
+
+        val statusString = when (statusCode) {
+            0 -> "NONE"
+            1 -> "LIGHT"
+            2 -> "MODERATE"
+            3 -> "SEVERE"
+            4 -> "CRITICAL"
+            5 -> "EMERGENCY"
+            6 -> "SHUTDOWN"
+            else -> "UNKNOWN"
+        }
+
+        val cpuTemp = getCpuTemp()
+        val batteryTemp = getBatteryTemp()
+        val isOverheating = statusCode >= 3 || cpuTemp > 75.0 || batteryTemp > 45.0
+
+        val recommendedAction = when {
+            statusCode >= 5 || cpuTemp > 85.0 -> "EMERGENCY SHUTDOWN/THROTTLE ALL PROCESSES IMMEDIATELY"
+            statusCode >= 3 || cpuTemp > 70.0 -> "SEVERE OVERHEATING: PAUSE ALL AUTOMATIONS AND DIAL BACK COMPUTATION"
+            statusCode >= 1 || cpuTemp > 55.0 -> "MODERATE HEAT: DECREASE SAMPLING RATE OR BACKGROUND INTENSITY"
+            else -> "OPTIMAL: DEVICE IS OPERATING WELL WITHIN SAFE THERMAL BOUNDS"
+        }
+
+        return ThermalStatusResponse(
+            success = true,
+            thermal_status_code = statusCode,
+            thermal_status_string = statusString,
+            cpu_temperature_celsius = cpuTemp,
+            battery_temperature_celsius = batteryTemp,
+            is_overheating = isOverheating,
+            recommended_action = recommendedAction
+        )
+    }
+
+    fun getStorageStatus(): StorageStatusResponse {
+        try {
+            val path = context.filesDir
+            val stat = android.os.StatFs(path.path)
+            val blockSize = stat.blockSizeLong
+            val totalBlocks = stat.blockCountLong
+            val availableBlocks = stat.availableBlocksLong
+            
+            val totalSpace = totalBlocks * blockSize
+            val freeSpace = availableBlocks * blockSize
+            val usedSpace = totalSpace - freeSpace
+            val usagePct = if (totalSpace > 0) (usedSpace.toDouble() / totalSpace.toDouble()) * 100.0 else 0.0
+            val lowStorage = freeSpace < (500 * 1024 * 1024) // low if less than 500MB free
+
+            return StorageStatusResponse(
+                success = true,
+                total_space_bytes = totalSpace,
+                free_space_bytes = freeSpace,
+                usable_space_bytes = freeSpace,
+                used_space_bytes = usedSpace,
+                usage_percent = usagePct,
+                storage_path = path.absolutePath,
+                low_storage_state = lowStorage
+            )
+        } catch (e: Exception) {
+            return StorageStatusResponse(
+                success = false,
+                total_space_bytes = 0,
+                free_space_bytes = 0,
+                usable_space_bytes = 0,
+                used_space_bytes = 0,
+                usage_percent = 0.0,
+                storage_path = context.filesDir.absolutePath,
+                low_storage_state = false
+            )
+        }
+    }
+
     fun startServer(port: Int = 8080) {
         if (_isServerRunning.value) return
         
@@ -465,7 +676,7 @@ class MobileServerManager(private val context: Context) {
                     // API Key Interceptor
                     intercept(ApplicationCallPipeline.Plugins) {
                         val path = call.request.path()
-                        if (path.startsWith("/api/")) {
+                        if (path.startsWith("/api/") && !path.startsWith("/api/auth/pair/")) {
                             val clientKey = call.request.header("X-Agent-Key")
                             if (clientKey != _apiKey.value) {
                                 call.respondText("Unauthorized: Invalid X-Agent-Key", status = HttpStatusCode.Unauthorized)
@@ -476,6 +687,54 @@ class MobileServerManager(private val context: Context) {
                     }
                     
                     routing {
+                        post("/api/auth/pair/secure-handshake") {
+                            log("POST /api/auth/pair/secure-handshake - Processing secure pairing handshake")
+                            try {
+                                val req = call.receive<SecurePairingRequest>()
+                                val currentChallenge = _activeHandshake.value
+                                if (currentChallenge == null) {
+                                    log("Pairing failed: No active handshake session found on the device.")
+                                    call.respond(HttpStatusCode.BadRequest, SecurePairingResponse(success = false, message = "No active handshake challenge exists on the device. Please open the pairing screen on the phone to generate a new QR code."))
+                                    return@post
+                                }
+
+                                if (req.handshakeId != currentChallenge.handshakeId) {
+                                    log("Pairing failed: Handshake ID mismatch. Received: ${req.handshakeId}, Expected: ${currentChallenge.handshakeId}")
+                                    call.respond(HttpStatusCode.BadRequest, SecurePairingResponse(success = false, message = "Handshake ID mismatch. The QR code may have expired or a new one was generated. Please refresh."))
+                                    return@post
+                                }
+
+                                // Verify the cryptographic hash of challenge + PIN
+                                val expectedInput = currentChallenge.challenge + currentChallenge.pin
+                                val expectedHash = computeSha256(expectedInput)
+
+                                if (req.responseHash.lowercase() != expectedHash.lowercase()) {
+                                    log("Pairing failed: Cryptographic challenge response hash mismatch. Device identity verification failed.")
+                                    call.respond(HttpStatusCode.Forbidden, SecurePairingResponse(success = false, message = "Cryptographic identity verification failed. Handshake PIN or challenge response is incorrect."))
+                                    return@post
+                                }
+
+                                // Successful verification!
+                                val matchedKey = _apiKey.value
+                                log("Pairing success: Verified Windows Controller identity for '${req.clientName}' [MAC: ${req.clientMac}]. Exchanging secure key.")
+                                
+                                val clientIp = try { call.request.local.remoteHost } catch (e: Exception) { "Unknown IP" }
+                                onSecurePairSuccessCallback?.invoke(req.clientName, clientIp)
+
+                                _activeHandshake.value = null // Consume/clear handshake on success
+
+                                val response = SecurePairingResponse(
+                                    success = true,
+                                    message = "Handshake successful. Secure key established and Windows controller registered.",
+                                    apiKey = matchedKey,
+                                    deviceName = android.os.Build.MODEL
+                                )
+                                call.respond(response)
+                            } catch (e: Exception) {
+                                log("Pairing Error: ${e.message}")
+                                call.respond(HttpStatusCode.InternalServerError, SecurePairingResponse(success = false, message = "Internal server processing error: ${e.message}"))
+                            }
+                        }
                         get("/") {
                             if (_services.value.find { it.id == "web" }?.isEnabled == true) {
                                 log("GET / - 200 OK")
@@ -605,6 +864,50 @@ class MobileServerManager(private val context: Context) {
                                 }
                             } else {
                                 log("POST /hardware/network/toggle - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/api/hardware/thermal") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /api/hardware/thermal - Get thermal status")
+                                val response = getThermalStatus()
+                                call.respond(response)
+                            } else {
+                                log("GET /api/hardware/thermal - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/hardware/thermal") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /hardware/thermal - Get thermal status")
+                                val response = getThermalStatus()
+                                call.respond(response)
+                            } else {
+                                log("GET /hardware/thermal - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/api/hardware/storage") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /api/hardware/storage - Get storage stats")
+                                val response = getStorageStatus()
+                                call.respond(response)
+                            } else {
+                                log("GET /api/hardware/storage - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/hardware/storage") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /hardware/storage - Get storage stats")
+                                val response = getStorageStatus()
+                                call.respond(response)
+                            } else {
+                                log("GET /hardware/storage - 403 Forbidden")
                                 call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
                             }
                         }

@@ -74,4 +74,30 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertNotNull(response.message)
     org.junit.Assert.assertTrue(response.method_used.lowercase().contains("root") || response.method_used.lowercase().contains("none"))
   }
+
+  @Test
+  fun `test mobile server getThermalStatus`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val serverManager = com.example.data.MobileServerManager(app)
+    
+    val status = serverManager.getThermalStatus()
+    org.junit.Assert.assertNotNull(status)
+    org.junit.Assert.assertTrue(status.success)
+    org.junit.Assert.assertNotNull(status.thermal_status_string)
+    org.junit.Assert.assertTrue(status.cpu_temperature_celsius > 0.0)
+    org.junit.Assert.assertTrue(status.battery_temperature_celsius > 0.0)
+  }
+
+  @Test
+  fun `test mobile server getStorageStatus`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val serverManager = com.example.data.MobileServerManager(app)
+    
+    val status = serverManager.getStorageStatus()
+    org.junit.Assert.assertNotNull(status)
+    org.junit.Assert.assertTrue(status.success)
+    org.junit.Assert.assertTrue(status.total_space_bytes >= 0)
+    org.junit.Assert.assertTrue(status.free_space_bytes >= 0)
+    org.junit.Assert.assertTrue(status.usage_percent in 0.0..100.0)
+  }
 }

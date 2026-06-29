@@ -356,6 +356,10 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
         
         // Initial registered Windows laptop passkey
         _passkeys.value = emptyList()
+
+        serverManager.setOnSecurePairSuccessCallback { clientName, clientIp ->
+            initiatePairing(clientName, clientIp)
+        }
         
         // Listen to Auth changes to reload data from Firestore
         viewModelScope.launch {

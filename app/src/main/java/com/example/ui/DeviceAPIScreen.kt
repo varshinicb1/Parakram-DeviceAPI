@@ -2322,6 +2322,7 @@ fun PairingDialog(
     onPairSuccess: (String, String) -> Unit
 ) {
     val discoveredExtensions by viewModel.discoveredExtensions.collectAsState()
+    var activePairTab by remember { mutableStateOf("scan") } // "scan" or "qr"
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -2337,74 +2338,218 @@ fun PairingDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text("Network Hardware Discovery", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                
-                Text(
-                    "Scanning local network for available 'Remixed' Hardware Extensions using mDNS unified API.",
-                    color = TextSecondary,
-                    fontSize = 11.sp,
-                    textAlign = TextAlign.Center
-                )
-
-                val infiniteTransition = rememberInfiniteTransition()
-                val pulseScale by infiniteTransition.animateFloat(
-                    initialValue = 0.8f,
-                    targetValue = 1.2f,
-                    animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse),
-                    label = ""
-                )
-
-                Box(
-                    modifier = Modifier.size(80.dp),
-                    contentAlignment = Alignment.Center
+                // Unified Header Selector Tabs
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DarkSurface)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .fillMaxSize(pulseScale)
-                            .clip(CircleShape)
-                            .background(CyanPrimary.copy(alpha = 0.2f))
-                    )
-                    Icon(
-                        imageVector = Icons.Default.WifiTethering,
-                        contentDescription = "Scanning",
-                        tint = CyanPrimary,
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-
-                if (discoveredExtensions.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(100.dp)
+                            .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(DarkSurface),
+                            .background(if (activePairTab == "scan") CyanPrimary.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { activePairTab = "scan" }
+                            .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Searching for unified API nodes...", color = TextSecondary, fontSize = 12.sp)
+                        Text(
+                            text = "mDNS Network Scan",
+                            color = if (activePairTab == "scan") CyanPrimary else TextSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (activePairTab == "qr") CyanPrimary.copy(alpha = 0.15f) else Color.Transparent)
+                            .clickable { activePairTab = "qr" }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Secure QR Pair",
+                            color = if (activePairTab == "qr") CyanPrimary else TextSecondary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+
+                if (activePairTab == "scan") {
+                    Text("Network Hardware Discovery", color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    
+                    Text(
+                        "Scanning local network for available 'Remixed' Hardware Extensions using mDNS unified API.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    val infiniteTransition = rememberInfiniteTransition()
+                    val pulseScale by infiniteTransition.animateFloat(
+                        initialValue = 0.8f,
+                        targetValue = 1.2f,
+                        animationSpec = infiniteRepeatable(animation = tween(1000), repeatMode = RepeatMode.Reverse),
+                        label = ""
+                    )
+
+                    Box(
+                        modifier = Modifier.size(80.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(pulseScale)
+                                .clip(CircleShape)
+                                .background(CyanPrimary.copy(alpha = 0.2f))
+                        )
+                        Icon(
+                            imageVector = Icons.Default.WifiTethering,
+                            contentDescription = "Scanning",
+                            tint = CyanPrimary,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    if (discoveredExtensions.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurface),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Searching for unified API nodes...", color = TextSecondary, fontSize = 12.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(discoveredExtensions) { (name, ip) ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(DarkSurface)
+                                        .clickable { onPairSuccess(name, ip) }
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(name, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                        Text(ip, color = CyanPrimary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                                    }
+                                    Icon(Icons.Default.ChevronRight, contentDescription = "Connect", tint = CyanPrimary)
+                                }
+                            }
+                        }
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(discoveredExtensions) { (name, ip) ->
-                            Row(
+                    // SECURE QR HANDSHAKE TAB
+                    val activeHandshake by viewModel.serverManager.activeHandshake.collectAsState()
+                    
+                    LaunchedEffect(activePairTab) {
+                        if (activePairTab == "qr") {
+                            viewModel.serverManager.generateSecureHandshakeChallenge()
+                        }
+                    }
+
+                    Text(
+                        text = "Secure QR Handshake",
+                        color = TextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+
+                    Text(
+                        text = "A physical scan is required to authenticate. The QR code contains ephemeral keys and a PIN verification challenge to establish a mutual secure session.",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        textAlign = TextAlign.Center
+                    )
+
+                    activeHandshake?.let { handshake ->
+                        Box(
+                            modifier = Modifier
+                                .size(160.dp)
+                                .background(Color.White, RoundedCornerShape(12.dp))
+                                .border(1.dp, CyanPrimary, RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            QRCodeGeneratorComponent(
+                                payload = handshake.qrPayload,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "PAIRING CODE / PIN",
+                                color = TextSecondary,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Text(
+                                text = handshake.pin,
+                                color = CyanPrimary,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 4.sp
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(DarkSurface)
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val infiniteTransition = rememberInfiniteTransition()
+                            val pulseAlpha by infiniteTransition.animateFloat(
+                                initialValue = 0.3f,
+                                targetValue = 1.0f,
+                                animationSpec = infiniteRepeatable(animation = tween(1200), repeatMode = RepeatMode.Reverse),
+                                label = ""
+                            )
+                            
+                            Box(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(DarkSurface)
-                                    .clickable { onPairSuccess(name, ip) }
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(name, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text(ip, color = CyanPrimary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
-                                }
-                                Icon(Icons.Default.ChevronRight, contentDescription = "Connect", tint = CyanPrimary)
-                            }
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(CyanPrimary.copy(alpha = pulseAlpha))
+                            )
+                            Text(
+                                text = "Awaiting verification handshake from Windows...",
+                                color = TextSecondary,
+                                fontSize = 10.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    } ?: run {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = CyanPrimary)
                         }
                     }
                 }

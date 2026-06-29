@@ -65,6 +65,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".data.HardwareExtensionWakeLockService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".data.BatteryMonitoringService"
             android:exported="false"
             android:foregroundServiceType="specialUse">

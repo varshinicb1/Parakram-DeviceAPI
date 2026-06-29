@@ -197,6 +197,20 @@ data class GeofenceRequest(
     val geofenceId: String? = null
 )
 
+@Serializable
+data class WakeLockStatusResponse(
+    val success: Boolean,
+    val cpuLockHeld: Boolean,
+    val wifiLockHeld: Boolean,
+    val activeTags: List<String>
+)
+
+@Serializable
+data class WakeLockActionRequest(
+    val action: String, // "acquire", "release", "clear"
+    val tag: String? = null
+)
+
 data class ServerService(
     val id: String,
     val name: String,

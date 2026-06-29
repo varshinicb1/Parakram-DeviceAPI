@@ -337,7 +337,6 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
         loadInitialCapabilities()
         loadPlugins()
         registerBatteryReceiver()
-        registerSensors()
         startTrafficSimulator()
         loadBluetoothAdapterData()
         startNsdDiscovery()
@@ -479,7 +478,7 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
         startBatteryMonitoringService()
     }
 
-    private fun registerSensors() {
+    fun registerSensors() {
         accelerometer?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
@@ -487,16 +486,25 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
         try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
-                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                     locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 5000L, 5f, this)
-                } else {
-                    Log.w("DeviceAPIViewModel", "Location permission not granted.")
                 }
+            } else {
+                Log.w("DeviceAPIViewModel", "Location permission not granted.")
             }
         } catch (e: SecurityException) {
             Log.w("DeviceAPIViewModel", "Location permission not granted yet.")
+        }
+    }
+
+    fun unregisterSensors() {
+        sensorManager.unregisterListener(this)
+        try {
+            locationManager.removeUpdates(this)
+        } catch (e: Exception) {
+            Log.e("DeviceAPIViewModel", "Error unregistering location updates: ${e.message}")
         }
     }
 
@@ -1239,7 +1247,7 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
             discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
         } catch (e: Exception) {}
         stopMotionStreaming()
-        sensorManager.unregisterListener(this)
+        unregisterSensors()
         trafficSimulatorJob?.cancel()
     }
 

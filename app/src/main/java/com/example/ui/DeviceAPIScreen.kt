@@ -105,10 +105,23 @@ fun DeviceAPIScreen(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
         showPermissionsShield = false
+        viewModel.registerSensors()
     }
 
     var currentTab by remember { mutableStateOf("dashboard") }
     var showPairingDialog by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.DisposableEffect(viewModel, currentUser) {
+        val permissionsGranted = permissionsList.all {
+            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+        }
+        if (permissionsGranted && currentUser != null) {
+            viewModel.registerSensors()
+        }
+        onDispose {
+            viewModel.unregisterSensors()
+        }
+    }
     
     Scaffold(
         modifier = modifier.testTag("device_api_scaffold"),

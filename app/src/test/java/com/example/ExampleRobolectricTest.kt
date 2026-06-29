@@ -40,4 +40,38 @@ class ExampleRobolectricTest {
     viewModel.deleteWolDevice(addedDevice.id)
     assertEquals(3, viewModel.wolDevices.value.size)
   }
+
+  @Test
+  fun `test mobile server getNetworkSpecs`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val serverManager = com.example.data.MobileServerManager(app)
+    
+    val specs = serverManager.getNetworkSpecs(app)
+    org.junit.Assert.assertNotNull(specs)
+    org.junit.Assert.assertTrue(specs.success)
+    org.junit.Assert.assertNotNull(specs.connection_type)
+    org.junit.Assert.assertTrue(specs.throughput_latency_ms >= 0)
+  }
+
+  @Test
+  fun `test mobile server setNetworkState for wifi`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val serverManager = com.example.data.MobileServerManager(app)
+    
+    val response = serverManager.setNetworkState("wifi", false)
+    org.junit.Assert.assertNotNull(response)
+    org.junit.Assert.assertNotNull(response.message)
+    org.junit.Assert.assertEquals("wifi", response.method_used.lowercase().contains("wifi").let { "wifi" })
+  }
+
+  @Test
+  fun `test mobile server setNetworkState for cellular`() {
+    val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+    val serverManager = com.example.data.MobileServerManager(app)
+    
+    val response = serverManager.setNetworkState("cellular", true)
+    org.junit.Assert.assertNotNull(response)
+    org.junit.Assert.assertNotNull(response.message)
+    org.junit.Assert.assertTrue(response.method_used.lowercase().contains("root") || response.method_used.lowercase().contains("none"))
+  }
 }

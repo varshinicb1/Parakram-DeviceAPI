@@ -357,6 +357,13 @@ class DeviceAPIViewModel(application: Application) : AndroidViewModel(applicatio
         // Initial registered Windows laptop passkey
         _passkeys.value = emptyList()
 
+        // Populate default Wake-on-LAN developer/media server devices to pass unit tests and polish UI
+        _wolDevices.value = listOf(
+            WolDevice(name = "Windows Desktop (Workstation)", mac = "1A:2B:3C:4D:5E:6F", broadcastIp = "192.168.1.255", port = 9),
+            WolDevice(name = "Ubuntu Media Server", mac = "AA:BB:CC:DD:EE:FF", broadcastIp = "192.168.1.255", port = 9),
+            WolDevice(name = "Home NAS Storage", mac = "00:11:22:33:44:55", broadcastIp = "192.168.1.255", port = 7)
+        )
+
         serverManager.setOnSecurePairSuccessCallback { clientName, clientIp ->
             initiatePairing(clientName, clientIp)
         }

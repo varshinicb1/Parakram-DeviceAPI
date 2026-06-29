@@ -1745,6 +1745,10 @@ fun ServerTab(viewModel: DeviceAPIViewModel) {
         // Exposed Services Config
         val services by viewModel.serverManager.services.collectAsState()
         val apiKey by viewModel.serverManager.apiKey.collectAsState()
+        val activeClientsCount by viewModel.serverManager.rateLimiter.activeClientsCount.collectAsState()
+        val totalRequestsBlocked by viewModel.serverManager.rateLimiter.totalRequestsBlocked.collectAsState()
+        val activeGeofences by viewModel.serverManager.geofencesFlow.collectAsState()
+        val gps by viewModel.gpsCoords.collectAsState()
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -1792,6 +1796,249 @@ fun ServerTab(viewModel: DeviceAPIViewModel) {
                     Text(apiKey, color = CyanPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp, modifier = Modifier.weight(1f))
                     TextButton(onClick = { viewModel.serverManager.generateNewApiKey() }) {
                         Text("Regenerate", color = White, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // API Rate Limiter & Shield Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, BorderColor)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Shield, contentDescription = null, tint = ChromeYellow, modifier = Modifier.size(16.dp))
+                    Text("API Rate Limiter & Shield", color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+                
+                Text(
+                    text = "Protects the localized edge server against denial-of-service, runaway script loops, or API abuse from connected agents using a high-performance token bucket rate limiter.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+                
+                HorizontalDivider(color = BorderColor)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Active Connected Agents", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("$activeClientsCount clients", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Abusive Requests Blocked", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "$totalRequestsBlocked events", 
+                            color = if (totalRequestsBlocked > 0) CherryRed else TextPrimary, 
+                            fontSize = 15.sp, 
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                HorizontalDivider(color = BorderColor)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Rate Limiter Configuration", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Capacity: 50.0 | Refill: 5.0 tokens/sec", color = CyanPrimary, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    TextButton(
+                        onClick = { viewModel.serverManager.rateLimiter.reset() },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    ) {
+                        Text("Reset Stats", color = ChromeYellow, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // Edge Geofencing & Location Shield Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceCard),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, BorderColor)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.LocationOn, contentDescription = null, tint = CyanPrimary, modifier = Modifier.size(16.dp))
+                    Text("Edge Geofencing & Location Shield", color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+
+                Text(
+                    text = "Connected AI agents can dynamically query coarse device locations and register/manage geofences to trigger automated scripts when the developer's phone enters or exits custom physical coordinates.",
+                    color = TextSecondary,
+                    fontSize = 12.sp
+                )
+
+                HorizontalDivider(color = BorderColor)
+
+                // Current coordinates
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("Current Coordinates", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Lat: ${"%.4f".format(gps.first)} | Lon: ${"%.4f".format(gps.second)}",
+                            color = TextPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Coarse Coordinates", color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "Lat: ${"%.3f".format(gps.first)} | Lon: ${"%.3f".format(gps.second)}",
+                            color = CyanPrimary,
+                            fontSize = 13.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = BorderColor)
+
+                Text("Active Geofences (${activeGeofences.size})", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                if (activeGeofences.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(ObsidianBackground, RoundedCornerShape(8.dp))
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No geofences currently set. Connect an external agent to POST geofences or click 'Add Nearby HQ' below.",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        activeGeofences.forEach { geo ->
+                            // Calculate distance for UI
+                            val r = 6371e3 // Earth's radius in meters
+                            val phi1 = Math.toRadians(gps.first)
+                            val phi2 = Math.toRadians(geo.latitude)
+                            val deltaPhi = Math.toRadians(geo.latitude - gps.first)
+                            val deltaLambda = Math.toRadians(geo.longitude - gps.second)
+
+                            val a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                                    Math.cos(phi1) * Math.cos(phi2) *
+                                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+                            val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                            val distance = r * c
+                            val isInside = distance <= geo.radiusMeters
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(ObsidianBackground, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isInside) CyanPrimary.copy(alpha = 0.5f) else BorderColor, RoundedCornerShape(8.dp))
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Text(geo.id, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        if (geo.label.isNotEmpty()) {
+                                            Text("(${geo.label})", color = TextSecondary, fontSize = 11.sp)
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "Lat: ${"%.3f".format(geo.latitude)}, Lon: ${"%.3f".format(geo.longitude)} | Radius: ${geo.radiusMeters.toInt()}m",
+                                        color = TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Text(
+                                        text = "Distance: ${"%.1f".format(distance)} meters",
+                                        color = if (isInside) CyanPrimary else TextSecondary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isInside) CyanPrimary.copy(alpha = 0.15f) else CherryRed.copy(alpha = 0.15f),
+                                            RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = if (isInside) "Inside" else "Outside",
+                                        color = if (isInside) CyanPrimary else CherryRed,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            viewModel.serverManager.addGeofence(
+                                com.example.data.GeofenceDefinition(
+                                    id = "sf_base_hq",
+                                    latitude = gps.first,
+                                    longitude = gps.second,
+                                    radiusMeters = 500.0,
+                                    label = "Main Office Base"
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Add Nearby HQ", color = CyanPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            viewModel.serverManager.addGeofence(
+                                com.example.data.GeofenceDefinition(
+                                    id = "stanford_valley",
+                                    latitude = 37.4275,
+                                    longitude = -122.1697,
+                                    radiusMeters = 1000.0,
+                                    label = "Stanford Campus"
+                                )
+                            )
+                        },
+                        modifier = Modifier.weight(1.1f)
+                    ) {
+                        Text("Add Distant Stanford", color = ChromeYellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = { viewModel.serverManager.clearGeofences() },
+                        modifier = Modifier.weight(0.8f)
+                    ) {
+                        Text("Clear All", color = CherryRed, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

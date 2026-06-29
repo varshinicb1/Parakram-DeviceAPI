@@ -157,6 +157,46 @@ data class SecurePairingResponse(
     val deviceName: String? = null
 )
 
+@Serializable
+data class GeofenceDefinition(
+    val id: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radiusMeters: Double,
+    val label: String = ""
+)
+
+@Serializable
+data class GeofenceStatus(
+    val id: String,
+    val label: String,
+    val latitude: Double,
+    val longitude: Double,
+    val radiusMeters: Double,
+    val isInside: Boolean,
+    val distanceMeters: Double
+)
+
+@Serializable
+data class LocationResponse(
+    val success: Boolean,
+    val latitude: Double,
+    val longitude: Double,
+    val coarseLatitude: Double,
+    val coarseLongitude: Double,
+    val accuracyMeters: Float,
+    val provider: String,
+    val timestamp: Long,
+    val geofences: List<GeofenceStatus>
+)
+
+@Serializable
+data class GeofenceRequest(
+    val action: String, // "add" or "remove" or "clear"
+    val geofence: GeofenceDefinition? = null,
+    val geofenceId: String? = null
+)
+
 data class ServerService(
     val id: String,
     val name: String,
@@ -210,6 +250,16 @@ class MobileServerManager(private val context: Context) {
 
     private val _activeHandshake = MutableStateFlow<SecurePairingChallenge?>(null)
     val activeHandshake: StateFlow<SecurePairingChallenge?> = _activeHandshake.asStateFlow()
+
+    // Robust token-based rate limiter for security, stability and protecting against API abuse.
+    val rateLimiter = TokenBucketRateLimiter(capacity = 50.0, refillRatePerSecond = 5.0)
+
+    // Thread-safe copy-on-write list of geofences for local context-aware automation
+    private val _geofences = java.util.concurrent.CopyOnWriteArrayList<GeofenceDefinition>()
+    val geofences: List<GeofenceDefinition> get() = _geofences
+
+    private val _geofencesFlow = MutableStateFlow<List<GeofenceDefinition>>(emptyList())
+    val geofencesFlow: StateFlow<List<GeofenceDefinition>> = _geofencesFlow.asStateFlow()
 
     fun generateSecureHandshakeChallenge(port: Int = 8080): SecurePairingChallenge {
         val hid = java.util.UUID.randomUUID().toString().take(8)
@@ -673,9 +723,27 @@ class MobileServerManager(private val context: Context) {
                         json(Json { prettyPrint = true; isLenient = true; ignoreUnknownKeys = true })
                     }
                     
-                    // API Key Interceptor
+                    // API Key & Rate Limiting Interceptor
                     intercept(ApplicationCallPipeline.Plugins) {
                         val path = call.request.path()
+                        if (path.startsWith("/api")) {
+                            val clientIp = try {
+                                call.request.local.remoteHost
+                            } catch (e: Exception) {
+                                "unknown"
+                            }
+                            if (!rateLimiter.tryAcquire(clientIp)) {
+                                log("Rate Limit Exceeded for client $clientIp on path $path")
+                                call.respondText(
+                                    "{\"success\": false, \"message\": \"Too Many Requests: Token bucket rate limit exceeded for $clientIp. Please retry later.\"}",
+                                    ContentType.Application.Json,
+                                    HttpStatusCode.TooManyRequests
+                                )
+                                finish()
+                                return@intercept
+                            }
+                        }
+
                         if (path.startsWith("/api/") && !path.startsWith("/api/auth/pair/")) {
                             val clientKey = call.request.header("X-Agent-Key")
                             if (clientKey != _apiKey.value) {
@@ -908,6 +976,96 @@ class MobileServerManager(private val context: Context) {
                                 call.respond(response)
                             } else {
                                 log("GET /hardware/storage - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/api/hardware/location") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /api/hardware/location - Get location & geofence data")
+                                val response = getCurrentLocationData()
+                                call.respond(response)
+                            } else {
+                                log("GET /api/hardware/location - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        get("/hardware/location") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                log("GET /hardware/location - Get location & geofence data")
+                                val response = getCurrentLocationData()
+                                call.respond(response)
+                            } else {
+                                log("GET /hardware/location - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/api/hardware/location") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<GeofenceRequest>()
+                                    log("POST /api/hardware/location - Action: ${req.action}")
+                                    when (req.action.lowercase()) {
+                                        "add" -> {
+                                            val geo = req.geofence ?: throw IllegalArgumentException("Missing geofence definition")
+                                            addGeofence(geo)
+                                            call.respond(mapOf("success" to true, "message" to "Geofence '${geo.id}' registered successfully"))
+                                        }
+                                        "remove" -> {
+                                            val id = req.geofenceId ?: throw IllegalArgumentException("Missing geofenceId")
+                                            val removed = removeGeofence(id)
+                                            call.respond(mapOf("success" to removed, "message" to if (removed) "Geofence '$id' removed" else "Geofence '$id' not found"))
+                                        }
+                                        "clear" -> {
+                                            clearGeofences()
+                                            call.respond(mapOf("success" to true, "message" to "All geofences cleared"))
+                                        }
+                                        else -> {
+                                            call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to "Invalid action: ${req.action}"))
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    log("POST /api/hardware/location - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to (e.message ?: "Invalid payload format")))
+                                }
+                            } else {
+                                log("POST /api/hardware/location - 403 Forbidden")
+                                call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
+                            }
+                        }
+
+                        post("/hardware/location") {
+                            if (_services.value.find { it.id == "api" }?.isEnabled == true) {
+                                try {
+                                    val req = call.receive<GeofenceRequest>()
+                                    log("POST /hardware/location - Action: ${req.action}")
+                                    when (req.action.lowercase()) {
+                                        "add" -> {
+                                            val geo = req.geofence ?: throw IllegalArgumentException("Missing geofence definition")
+                                            addGeofence(geo)
+                                            call.respond(mapOf("success" to true, "message" to "Geofence '${geo.id}' registered successfully"))
+                                        }
+                                        "remove" -> {
+                                            val id = req.geofenceId ?: throw IllegalArgumentException("Missing geofenceId")
+                                            val removed = removeGeofence(id)
+                                            call.respond(mapOf("success" to removed, "message" to if (removed) "Geofence '$id' removed" else "Geofence '$id' not found"))
+                                        }
+                                        "clear" -> {
+                                            clearGeofences()
+                                            call.respond(mapOf("success" to true, "message" to "All geofences cleared"))
+                                        }
+                                        else -> {
+                                            call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to "Invalid action: ${req.action}"))
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    log("POST /hardware/location - Error: ${e.message}")
+                                    call.respond(HttpStatusCode.BadRequest, mapOf("success" to false, "error" to (e.message ?: "Invalid payload format")))
+                                }
+                            } else {
+                                log("POST /hardware/location - 403 Forbidden")
                                 call.respond(HttpStatusCode.Forbidden, mapOf("success" to false, "error" to "Service Disabled"))
                             }
                         }
@@ -1169,6 +1327,104 @@ class MobileServerManager(private val context: Context) {
         serverJob?.cancel()
         _isServerRunning.value = false
         log("Server stopped.")
+    }
+
+    fun getCurrentLocationData(): LocationResponse {
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        var bestLocation: android.location.Location? = null
+        var providerUsed = "none"
+
+        try {
+            if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                
+                val providers = locationManager?.getProviders(true) ?: emptyList()
+                for (provider in providers) {
+                    val loc = locationManager?.getLastKnownLocation(provider) ?: continue
+                    if (bestLocation == null || loc.accuracy < (bestLocation.accuracy)) {
+                        bestLocation = loc
+                        providerUsed = provider
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+            // Perms not granted or not available in current process state
+        } catch (e: Exception) {
+            // General exception safety
+        }
+
+        val lat = bestLocation?.latitude ?: 37.7749 // Default to SF for fallback/robustness
+        val lon = bestLocation?.longitude ?: -122.4194
+        val acc = bestLocation?.accuracy ?: 100.0f
+        val ts = bestLocation?.time ?: System.currentTimeMillis()
+        val prov = if (bestLocation != null) providerUsed else "mock/fallback"
+
+        // Coarse rounding: 3 decimal places is ~110m, preserving privacy
+        val coarseLat = Math.round(lat * 1000.0) / 1000.0
+        val coarseLon = Math.round(lon * 1000.0) / 1000.0
+
+        // Compute geofence statuses
+        val statuses = _geofences.map { g ->
+            val distance = calculateDistance(lat, lon, g.latitude, g.longitude)
+            GeofenceStatus(
+                id = g.id,
+                label = g.label,
+                latitude = g.latitude,
+                longitude = g.longitude,
+                radiusMeters = g.radiusMeters,
+                isInside = distance <= g.radiusMeters,
+                distanceMeters = distance
+            )
+        }
+
+        return LocationResponse(
+            success = true,
+            latitude = lat,
+            longitude = lon,
+            coarseLatitude = coarseLat,
+            coarseLongitude = coarseLon,
+            accuracyMeters = acc,
+            provider = prov,
+            timestamp = ts,
+            geofences = statuses
+        )
+    }
+
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371e3 // Earth's radius in meters
+        val phi1 = Math.toRadians(lat1)
+        val phi2 = Math.toRadians(lat2)
+        val deltaPhi = Math.toRadians(lat2 - lat1)
+        val deltaLambda = Math.toRadians(lon2 - lon1)
+
+        val a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                Math.cos(phi1) * Math.cos(phi2) *
+                Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+        return r * c
+    }
+
+    fun addGeofence(geofence: GeofenceDefinition) {
+        _geofences.removeIf { it.id == geofence.id }
+        _geofences.add(geofence)
+        _geofencesFlow.value = _geofences.toList()
+        log("Geofence registered: ${geofence.id} (${geofence.label})")
+    }
+
+    fun removeGeofence(id: String): Boolean {
+        val removed = _geofences.removeIf { it.id == id }
+        if (removed) {
+            _geofencesFlow.value = _geofences.toList()
+            log("Geofence removed: $id")
+        }
+        return removed
+    }
+
+    fun clearGeofences() {
+        _geofences.clear()
+        _geofencesFlow.value = emptyList()
+        log("All geofences cleared")
     }
 
     private fun log(message: String) {

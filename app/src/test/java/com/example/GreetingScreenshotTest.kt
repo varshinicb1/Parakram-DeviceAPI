@@ -3,7 +3,9 @@ package com.example
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.background
+import androidx.compose.ui.Modifier
 import androidx.compose.material3.Text
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.MyApplicationTheme
@@ -28,7 +30,7 @@ class GreetingScreenshotTest {
     composeTestRule.setContent {
       MyApplicationTheme {
         Box(
-          modifier = androidx.compose.foundation.layout.fillMaxSize()
+          modifier = Modifier.fillMaxSize()
             .background(com.example.ui.theme.ObsidianBackground),
           contentAlignment = androidx.compose.ui.Alignment.Center
         ) {

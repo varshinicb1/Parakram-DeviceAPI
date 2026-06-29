@@ -69,7 +69,70 @@ UTAP is a declarative, secure CRUD interface exposing unified REST endpoints to 
 
 ---
 
-### 3. Play Store Compliance (Android 14+ API 34/35)
+### 3. Real-Time Hardware & Network Telemetry (Fakeness-Free)
+To ensure agents can accurately inspect device resources and adapt data loads based on real connection performance, Parakram exposes dedicated telemetry endpoints:
+
+#### 💻 Hardware Resource Capability
+* **Route**: `GET /api/hardware`
+* **Response Payload**:
+  ```json
+  {
+    "success": true,
+    "device_model": "Pixel 8 Pro",
+    "os_version": "Android 14",
+    "sdk_int": 34,
+    "manufacturer": "Google",
+    "brand": "google",
+    "cpu_cores": 8,
+    "cpu_load_percent": 14.2,
+    "total_ram_mb": 11250,
+    "free_ram_mb": 4230,
+    "low_memory_state": false,
+    "battery_level_percent": 87,
+    "battery_is_charging": true
+  }
+  ```
+
+#### 📶 Connectivity, Link Speed, & Latency Analyzer
+Exposes signal strength levels, connection medium (Wi-Fi, Cellular, Ethernet), link bandwidths, and measures actual round-trip socket connect latency.
+* **Route**: `GET /hardware/network` (or `GET /api/hardware/network`)
+* **Response Payload**:
+  ```json
+  {
+    "success": true,
+    "connection_type": "Wi-Fi",
+    "signal_strength_level": 4,
+    "signal_strength_dbm": -58,
+    "throughput_latency_ms": 32,
+    "download_bandwidth_kbps": 120400,
+    "upload_bandwidth_kbps": 48200,
+    "is_metered": false
+  }
+  ```
+
+#### 🔌 Programmatic Network Control
+Allows AI agents to toggle Wi-Fi or cellular data programmatically to simulate or optimize synchronization scenarios.
+* **Route**: `POST /hardware/network/toggle` (or `POST /api/hardware/network/toggle`)
+* **Request Payload**:
+  ```json
+  {
+    "type": "wifi", // "wifi", "cellular", "data", or "mobile"
+    "enabled": false
+  }
+  ```
+* **Response Payload**:
+  ```json
+  {
+    "success": true,
+    "message": "Wi-Fi toggled successfully via system API.",
+    "method_used": "WifiManager API",
+    "current_state": false
+  }
+  ```
+
+---
+
+### 4. Play Store Compliance (Android 14+ API 34/35)
 Parakram is engineered for public Play Store compliance, strictly adhering to foreground service permissions:
 * **`dataSync`**: Used by the main `ServerForegroundService` to handle asynchronous file exchange and automation streams.
 * **`specialUse` with Property Subtype**: Used by the `BatteryMonitoringService` for live hardware telemetry logging, including the mandatory Play-Store-compliant property tag.

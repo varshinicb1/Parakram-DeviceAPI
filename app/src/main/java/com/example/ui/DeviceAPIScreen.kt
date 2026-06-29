@@ -5122,7 +5122,7 @@ fun RoyalPermissionsConsentShield(
                         .testTag("grant_all_permissions_btn"),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    Text("GRANT ALL REAL SYSTEM PERMISSIONS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text("GRANT ALL PERMISSIONS", fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
 
                 TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
